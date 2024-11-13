@@ -17,6 +17,9 @@ SLIST_HEAD(list_head, list_entry);
 
 struct hash_table_entry {
 	struct list_head list_head;
+
+	//one lock on each entry
+	pthread_mutex_t lock;
 };
 
 struct hash_table_v2 {
@@ -30,6 +33,14 @@ struct hash_table_v2 *hash_table_v2_create()
 	for (size_t i = 0; i < HASH_TABLE_CAPACITY; ++i) {
 		struct hash_table_entry *entry = &hash_table->entries[i];
 		SLIST_INIT(&entry->list_head);
+
+		//initialize each entry's lock
+		int err = pthread_mutex_init(&(entry->lock), NULL);
+		if (err != 0)
+		{
+			exit(err);
+		}
+
 	}
 	return hash_table;
 }
@@ -76,9 +87,21 @@ void hash_table_v2_add_entry(struct hash_table_v2 *hash_table,
 	struct list_head *list_head = &hash_table_entry->list_head;
 	struct list_entry *list_entry = get_list_entry(hash_table, key, list_head);
 
+	//if this specific entry is unlocked, we lock it
+	int err = pthread_mutex_lock(&(hash_table_entry->lock));
+	if (err != 0)
+	{
+		exit(err);
+	}
+
 	/* Update the value if it already exists */
 	if (list_entry != NULL) {
 		list_entry->value = value;
+		err = pthread_mutex_unlock(&(hash_table_entry->lock));
+		if (err != 0)
+		{
+			exit(err);
+		}
 		return;
 	}
 
@@ -86,6 +109,11 @@ void hash_table_v2_add_entry(struct hash_table_v2 *hash_table,
 	list_entry->key = key;
 	list_entry->value = value;
 	SLIST_INSERT_HEAD(list_head, list_entry, pointers);
+	err = pthread_mutex_unlock(&(hash_table_entry->lock));
+	if (err != 0)
+	{
+		exit(err);
+	}
 }
 
 uint32_t hash_table_v2_get_value(struct hash_table_v2 *hash_table,
@@ -104,6 +132,14 @@ void hash_table_v2_destroy(struct hash_table_v2 *hash_table)
 		struct hash_table_entry *entry = &hash_table->entries[i];
 		struct list_head *list_head = &entry->list_head;
 		struct list_entry *list_entry = NULL;
+
+		//destroy the lock on each entry
+		int err = pthread_mutex_destroy(&entry->lock);
+		if (err != 0)
+		{
+			exit(err);
+		}
+
 		while (!SLIST_EMPTY(list_head)) {
 			list_entry = SLIST_FIRST(list_head);
 			SLIST_REMOVE_HEAD(list_head, pointers);
